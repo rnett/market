@@ -1,0 +1,19 @@
+pluginManagement {
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id == "kotlin-multiplatform") {
+                useModule("org.jetbrains.kotlin:kotlin-gradle-plugin:${requested.version}")
+            }
+        }
+    }
+}
+rootProject.name = 'market'
+
+enableFeaturePreview('GRADLE_METADATA')
+
+//include ":kframe-data"
+//project(":kframe-data").projectDir = file("../kframe-data")
+
+//include ":sde-multiplatform"
+//project(":sde-multiplatform").projectDir = file("../sde-multiplatform")
+
