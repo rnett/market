@@ -8,7 +8,8 @@ import com.soywiz.klock.days
 import org.jetbrains.exposed.sql.select
 import org.jetbrains.exposed.sql.transactions.transaction
 
-actual fun getMarketInfo(type: invtype, date: DateTime): MarketTypeInfo = throw NotImplementedError()
+//TODO implement
+fun getMarketInfo(type: invtype, date: DateTime): MarketTypeInfo = throw NotImplementedError()
 
 fun madeFrom(typeid: Int) = transaction {
     industryactivitymaterials.select {
@@ -87,6 +88,7 @@ fun invtype.getRelated(steps: Int = 2): List<invtype> = transaction {
         marketGroup.invtypes_rk.map { it.typeID }
     ).flatten().toSet().filter { it != this@getRelated.typeID }.map { invtype[it] }
 }
+
 /*
 TODO
     same category?
@@ -103,8 +105,8 @@ Want to keep reasonably small if possible
 fun MarketInfo.Companion.makeFor(
     type: invtype,
     startDate: DateTime = DateTime.now(),
-    daysPast: Int = 14,
-    relatedDaysPast: Int = 14
+    daysPast: Int = 30,
+    relatedDaysPast: Int = 30
 ): MarketInfo {
     return MarketInfo(
         type,
@@ -124,3 +126,4 @@ fun TimeMarketInfo.Companion.makeFor(type: invtype, startDate: DateTime, daysPas
         last2.sumBy { it.destroyed }
     )
 }
+

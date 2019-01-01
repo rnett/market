@@ -28,7 +28,6 @@ apply plugin: 'kotlinx-serialization'
 
 repositories {
     mavenCentral()
-    mavenCentral()
     jcenter()
     maven { url "https://kotlin.bintray.com/kotlinx" }
     maven{ url 'https://jitpack.io' }
@@ -82,6 +81,14 @@ kotlin {
 
                 implementation "org.jetbrains.kotlinx:kotlinx-serialization-runtime:$serialization_version"
 
+                implementation "org.deeplearning4j:deeplearning4j-core:$dl4j_version"
+                implementation "org.nd4j:nd4j-native-platform:$dl4j_version"
+                //implementation "org.datavec:datavec-api:jar:$dl4j_version"
+
+                implementation "io.ktor:ktor-client-core:$ktor_version"
+                implementation "io.ktor:ktor-client-apache:$ktor_version"
+
+                implementation "com.github.salomonbrys.kotson:kotson:$kotson_version"
             }
         }
         jvmTest {

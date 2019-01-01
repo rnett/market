@@ -4,11 +4,11 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 
 interface HasData {
-    fun getData(): Map<String, Data<*>>
+    fun getMLData(): Map<String, Data<*>>
 }
 
 fun HasData.putAllData(prefix: String, map: MutableMap<String, Data<*>>) {
-    this.getData().forEach {
+    this.getMLData().forEach {
         map.put("${prefix}_${it.key}", it.value)
     }
 }
@@ -20,7 +20,7 @@ fun <T : Any> T.putAllDataFields(prefix: String, serializer: KSerializer<T>, map
 }
 
 abstract class HasDefaultData(val data: Map<String, Data<*>>) : HasData {
-    override fun getData(): Map<String, Data<*>> = data
+    override fun getMLData(): Map<String, Data<*>> = data
 }
 
 @Serializable
@@ -38,7 +38,11 @@ data class DoubleData(val doubleData: Double) : Data<Double>(doubleData)
 @Serializable
 data class BooleanData(val booleanData: Boolean) : Data<Boolean>(booleanData)
 
+@Serializable
+data class LongData(val longData: Long) : Data<Long>(longData)
+
 val String.data get() = StringData(this)
 val Int.data get() = IntData(this)
 val Double.data get() = DoubleData(this)
 val Boolean.data get() = BooleanData(this)
+val Long.data get() = LongData(this)
