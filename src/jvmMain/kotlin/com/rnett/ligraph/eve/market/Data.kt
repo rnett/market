@@ -1,4 +1,4 @@
-package com.rnett.ligraph.eve.market.data
+package com.rnett.ligraph.eve.market
 
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
@@ -19,7 +19,8 @@ fun <T : Any> T.putAllDataFields(prefix: String, serializer: KSerializer<T>, map
     }
 }
 
-abstract class HasDefaultData(val data: Map<String, Data<*>>) : HasData {
+abstract class HasDefaultData(val data: Map<String, Data<*>>) :
+    HasData {
     override fun getMLData(): Map<String, Data<*>> = data
 }
 

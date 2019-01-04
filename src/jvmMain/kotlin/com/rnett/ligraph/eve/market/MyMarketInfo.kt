@@ -1,12 +1,28 @@
-package com.rnett.ligraph.eve.market.data
+package com.rnett.ligraph.eve.market
 
+import com.rnett.ligraph.eve.market.data.marketinfo
+import com.rnett.ligraph.eve.market.data.marketinfos
 import com.rnett.ligraph.eve.sde.data.invtype
 import com.soywiz.klock.DateTime
 import com.soywiz.klock.days
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.*
+import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.transactions.transaction
 
-// fun getMarketInfo(type: invtype, date: DateTime): MarketTypeInfo
+fun getMarketInfo(type: invtype, date: DateTime): marketinfo = transaction {
+    marketinfo.find { (marketinfos.typeid eq type.typeID) and (marketinfos.date eq date.toString("")) }.first()
+}
+
+fun marketinfo.toMarketTypeInfo() = transaction {
+    MarketTypeInfo(
+        invtype[typeid],
+        date,
+        PriceInfo(sellmin, sellmax, sellaverage, sellordervol, selltransactionvol),
+        PriceInfo(buymin, buymax, buyaverage, buyordervol, buytransactionvol),
+        destroyed
+    )
+}
 
 fun <T : Any> T.getDataFields(serializer: KSerializer<T>): Map<String, Data<*>> =
     JsonTreeParser.parse(JSON.stringify(serializer, this)).mapValues {
@@ -60,7 +76,7 @@ data class TimeMarketInfo(
     val type: invtype,
     val today: MarketTypeInfo,
     val past: List<MarketTypeInfo>,
-    val destroyedPast: Int,
+    val destroyedPast: Long,
     val normalized: Boolean = false
 ) : HasData {
     companion object;
@@ -76,16 +92,17 @@ data class TimeMarketInfo(
     }
 
     fun normalize(): TimeMarketInfo {
+        return if (normalized) this.copy() else {
+            val past = past.map { it.normalize() }
 
-        val past = past.map { it.normalize() }
-
-        return if (normalized) this.copy() else TimeMarketInfo(
-            type,
-            today.normalize(),
-            past,
-            past.sumBy { it.destroyed },
-            true
-        )
+            TimeMarketInfo(
+                type,
+                today.normalize(),
+                past,
+                past.map { it.destroyed }.sum(),
+                true
+            )
+        }
     }
 
 }
@@ -94,7 +111,7 @@ data class MarketTypeInfo(
     val type: invtype, val date: String,
     val sell: PriceInfo,
     val buy: PriceInfo,
-    val destroyed: Int,
+    val destroyed: Long,
     val normalized: Boolean = false
 ) : HasData {
     override fun getMLData(): Map<String, Data<*>> =
@@ -105,15 +122,18 @@ data class MarketTypeInfo(
         }
 
     fun normalize(): MarketTypeInfo {
-        val yesterday = getMarketInfo(type, DateTime.fromString(date).utc - 1.days)
-        return if (normalized) this.copy() else MarketTypeInfo(
-            type,
-            date,
-            sell.normalizeBy(yesterday.sell),
-            buy.normalizeBy(yesterday.buy),
-            destroyed normalizeFrom yesterday.destroyed,
-            true
-        )
+        return if (normalized) this.copy() else {
+            val yesterday = getMarketInfo(type, DateTime.fromString(date).utc - 1.days).toMarketTypeInfo()
+
+            MarketTypeInfo(
+                type,
+                date,
+                sell.normalizeBy(yesterday.sell),
+                buy.normalizeBy(yesterday.buy),
+                destroyed normalizeFrom yesterday.destroyed,
+                true
+            )
+        }
     }
 }
 
@@ -154,3 +174,34 @@ infix fun Double.normalizeFrom(yesterday: Double) = (this - yesterday) / yesterd
 infix fun Int.normalizeFrom(yesterday: Int) = (this - yesterday) / yesterday
 infix fun Long.normalizeFrom(yesterday: Long) = (this - yesterday) / yesterday
 
+fun MarketInfo.Companion.makeFor(
+    type: invtype,
+    startDate: DateTime = DateTime.now(),
+    daysPast: Int = 30,
+    relatedDaysPast: Int = 30
+): MarketInfo {
+    return MarketInfo(
+        type,
+        TimeMarketInfo.makeFor(type, startDate, daysPast),
+        type.getRelated().associate {
+            it to TimeMarketInfo.makeFor(
+                it,
+                startDate,
+                relatedDaysPast
+            )
+        }
+    )
+}
+
+
+fun TimeMarketInfo.Companion.makeFor(type: invtype, startDate: DateTime, daysPast: Int = 14): TimeMarketInfo {
+
+    val last2 = (1..daysPast + 1).map { getMarketInfo(type, startDate - it.days).toMarketTypeInfo() }
+
+    return TimeMarketInfo(
+        type,
+        getMarketInfo(type, startDate).toMarketTypeInfo(),
+        last2,
+        last2.map { it.destroyed }.sum()
+    )
+}

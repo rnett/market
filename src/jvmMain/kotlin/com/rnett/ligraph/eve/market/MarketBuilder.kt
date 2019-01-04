@@ -1,4 +1,4 @@
-package com.rnett.ligraph.eve.market.data
+package com.rnett.ligraph.eve.market
 
 import com.github.salomonbrys.kotson.fromJson
 import com.google.gson.Gson
@@ -37,7 +37,7 @@ data class FuzzworksMarketDataSingle(
 data class FuzzworksMarketData(val buy: FuzzworksMarketDataSingle, val sell: FuzzworksMarketDataSingle)
 
 suspend fun getFuzzworksData(types: List<Int>, regionID: Int): Map<Int, FuzzworksMarketData> =
-    client.get<String>("https://market.fuzzwork.co.uk/aggregates/?region=10000002&types=34,35,36").let {
+    client.get<String>("https://market.fuzzwork.co.uk/aggregates/?region=$regionID&types=${types.joinToString(",")}").let {
         Gson().fromJson(it)
     }
 
@@ -93,7 +93,7 @@ fun getTransactionVol(buy: Double, sell: Double, average: Double, volume: Long):
 
 }
 
-fun main(args: Array<String>) {
+fun main() {
     val r = getDataForAll(listOf(34, 35, 36), 10000002)
     println()
 }

@@ -1,13 +1,8 @@
 package com.rnett.ligraph.eve.market
 
-/*
-
-@Serializer(forClass = DateTime::class)
-object DateTimeSerializer
 
 fun registerEndpoints() {
-    EndpointManager.apply {
-        addEndpoint(::getMarketInfo, MarketTypeInfo.serializer(), DateTimeSerializer)
-    }
+    com.rnett.ligraph.eve.market.data.registerEndpoints()
+    com.rnett.ligraph.eve.sde.data.registerEndpoints()
 }
-*/
+

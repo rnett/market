@@ -1,15 +1,32 @@
-package com.rnett.ligraph.eve.market.data
+package com.rnett.ligraph.eve.market
 
 import com.rnett.ligraph.eve.sde.data.industryactivitymaterials
 import com.rnett.ligraph.eve.sde.data.industryactivityproducts
 import com.rnett.ligraph.eve.sde.data.invtype
-import com.soywiz.klock.DateTime
-import com.soywiz.klock.days
+import kotlinx.coroutines.*
+import org.jetbrains.exposed.sql.Table
+import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.select
+import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 
-//TODO implement
-fun getMarketInfo(type: invtype, date: DateTime): MarketTypeInfo = throw NotImplementedError()
+object relateditems : Table("relateditems") {
+    val typeid = integer("typeid")
+    val relatedtypeid = integer("relatedtypeid")
+
+    init {
+        uniqueIndex(typeid, relatedtypeid)
+    }
+
+    fun addRelation(from: Int, to: Int) {
+        transaction {
+            insert {
+                it[typeid] = from
+                it[relatedtypeid] = to
+            }
+        }
+    }
+}
 
 fun madeFrom(typeid: Int) = transaction {
     industryactivitymaterials.select {
@@ -68,10 +85,10 @@ fun industryRelatedFirst(typeid: Int) = (madeFrom(typeid) + madeInto(typeid)).to
 fun Iterable<Int>.industryRelatedFirst() = (madeInto(this.toList()) + madeFrom(this.toList())).toSet()
 
 fun industryRelated(typeid: Int, steps: Int = 2): Set<Int> {
-    var related = setOf(typeid)
+    val related = mutableSetOf<Int>(typeid)
 
     for (i in 0..steps) {
-        related += related.industryRelatedFirst()
+        related.addAll(related.industryRelatedFirst())
     }
 
     return related
@@ -81,12 +98,12 @@ fun industryRelated(typeid: Int, steps: Int = 2): Set<Int> {
 
 //TODO store related in DB?
 
-fun invtype.getRelated(steps: Int = 2): List<invtype> = transaction {
+private fun invtype.generateRelated(steps: Int = 2): List<Int> = transaction {
     listOf(
         industryRelated(typeID, steps),
         group.invtypes_rk.map { it.typeID },
-        marketGroup.invtypes_rk.map { it.typeID }
-    ).flatten().toSet().filter { it != this@getRelated.typeID }.map { invtype[it] }
+        marketGroup?.invtypes_rk?.map { it.typeID } ?: emptyList()
+    ).flatten().toSet().filter { it != this@generateRelated.typeID }
 }
 
 /*
@@ -102,28 +119,45 @@ Want to keep reasonably small if possible
 
  */
 
-fun MarketInfo.Companion.makeFor(
-    type: invtype,
-    startDate: DateTime = DateTime.now(),
-    daysPast: Int = 30,
-    relatedDaysPast: Int = 30
-): MarketInfo {
-    return MarketInfo(
-        type,
-        TimeMarketInfo.makeFor(type, startDate, daysPast),
-        type.getRelated().associate { it to TimeMarketInfo.makeFor(it, startDate, relatedDaysPast) }
-    )
+suspend fun addAllRelated(limit: Int? = null, steps: Int = 2) = coroutineScope {
+    val known = transaction { relateditems.selectAll().map { it[relateditems.typeid] }.toSet() }
+
+    transaction { invtype.all().toList().filter { it.typeID !in known } }
+        .let {
+
+            if (it.isEmpty()) {
+                println("No more items to add!")
+                throw RuntimeException("Done with adding items")
+            }
+
+            if (limit != null)
+                it.take(limit)
+            else
+                it
+        }
+        .map {
+            launch(Dispatchers.IO) {
+                it.generateRelated(steps).map { related ->
+                    launch(Dispatchers.IO) {
+                        transaction {
+                            if (invtype.findById(related) != null)
+                                relateditems.addRelation(it.typeID, related)
+                        }
+                    }
+                }.joinAll()
+            }
+        }.joinAll()
 }
 
-fun TimeMarketInfo.Companion.makeFor(type: invtype, startDate: DateTime, daysPast: Int = 14): TimeMarketInfo {
+fun main(args: Array<String>) {
+    connectToDB(args.getOrNull(1))
+    runBlocking {
+        addAllRelated(limit = args.getOrNull(0)?.toIntOrNull() ?: 500)
+    }
 
-    val last2 = (1..daysPast + 1).map { getMarketInfo(type, startDate - it.days) }
-
-    return TimeMarketInfo(
-        type,
-        getMarketInfo(type, startDate),
-        last2,
-        last2.sumBy { it.destroyed }
-    )
 }
 
+fun invtype.getRelated(): List<invtype> = transaction {
+    relateditems.select { relateditems.typeid eq typeID }
+        .map { invtype[it[relateditems.relatedtypeid]] }
+}
