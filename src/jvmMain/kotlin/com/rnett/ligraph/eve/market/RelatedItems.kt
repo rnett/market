@@ -152,7 +152,7 @@ suspend fun addAllRelated(limit: Int? = null, steps: Int = 2) = coroutineScope {
 fun main(args: Array<String>) {
     connectToDB(args.getOrNull(1))
     runBlocking {
-        addAllRelated(limit = args.getOrNull(0)?.toIntOrNull() ?: 500)
+        addAllRelated(limit = args.getOrNull(0)?.toIntOrNull())
     }
 
 }
