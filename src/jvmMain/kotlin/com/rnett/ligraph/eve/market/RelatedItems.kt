@@ -1,13 +1,10 @@
 package com.rnett.ligraph.eve.market
 
-import com.rnett.ligraph.eve.sde.data.industryactivitymaterials
-import com.rnett.ligraph.eve.sde.data.industryactivityproducts
 import com.rnett.ligraph.eve.sde.data.invtype
+import com.rnett.ligraph.eve.sde.data.invtypes
+import javafx.application.Application.launch
 import kotlinx.coroutines.*
-import org.jetbrains.exposed.sql.Table
-import org.jetbrains.exposed.sql.insert
-import org.jetbrains.exposed.sql.select
-import org.jetbrains.exposed.sql.selectAll
+import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.transactions.transaction
 
 object relateditems : Table("relateditems") {
@@ -15,7 +12,10 @@ object relateditems : Table("relateditems") {
     val relatedtypeid = integer("relatedtypeid")
 
     init {
-        uniqueIndex(typeid, relatedtypeid)
+        uniqueIndex(
+            typeid,
+            relatedtypeid
+        )
     }
 
     fun addRelation(from: Int, to: Int) {
@@ -28,79 +28,40 @@ object relateditems : Table("relateditems") {
     }
 }
 
-fun madeFrom(typeid: Int) = transaction {
-    industryactivitymaterials.select {
-        // made from
-        industryactivitymaterials.activityID inList industryactivityproducts.select { industryactivityproducts.productTypeID eq typeid }.map {
-            it[industryactivityproducts.activityID]
-        }.distinct()
-    }.map { it[industryactivitymaterials.materialTypeID] } +
-            industryactivityproducts.select { industryactivityproducts.productTypeID eq typeid }.map {
-                // made from bps
-                it[industryactivityproducts.activityID]
-            }
-}.toSet()
+object industryrelated : Table("industryrelated") {
+    val typeid = integer("typeid")
+    val relatedtypeid = integer("relatedtypeid")
 
-fun madeFrom(typeids: List<Int>) = transaction {
-    industryactivitymaterials.select {
-        // made from
-        industryactivitymaterials.activityID inList industryactivityproducts.select { industryactivityproducts.productTypeID inList typeids }.map {
-            it[industryactivityproducts.activityID]
-        }.distinct()
-    }.map { it[industryactivitymaterials.materialTypeID] } +
-            industryactivityproducts.select { industryactivityproducts.productTypeID inList typeids }.map {
-                // made from bps
-                it[industryactivityproducts.activityID]
-            }
-}.toSet()
-
-fun madeInto(typeid: Int) = transaction {
-    industryactivityproducts.select {
-        // made into
-        industryactivityproducts.activityID inList industryactivitymaterials.select { industryactivitymaterials.materialTypeID eq typeid }.map {
-            it[industryactivitymaterials.activityID]
-        }.distinct()
-    }.map { it[industryactivityproducts.productTypeID] } +
-            industryactivitymaterials.select { industryactivitymaterials.materialTypeID eq typeid }.map {
-                // made into bps
-                it[industryactivitymaterials.activityID]
-            }
-}.toSet()
-
-fun madeInto(typeids: List<Int>) = transaction {
-    industryactivityproducts.select {
-        // made into
-        industryactivityproducts.activityID inList industryactivitymaterials.select { industryactivitymaterials.materialTypeID inList typeids }.map {
-            it[industryactivitymaterials.activityID]
-        }.distinct()
-    }.map { it[industryactivityproducts.productTypeID] } +
-            industryactivitymaterials.select { industryactivitymaterials.materialTypeID inList typeids }.map {
-                // made into bps
-                it[industryactivitymaterials.activityID]
-            }
-}.toSet()
-
-fun industryRelatedFirst(typeid: Int) = (madeFrom(typeid) + madeInto(typeid)).toSet()
-
-fun Iterable<Int>.industryRelatedFirst() = (madeInto(this.toList()) + madeFrom(this.toList())).toSet()
-
-fun industryRelated(typeid: Int, steps: Int = 2): Set<Int> {
-    val related = mutableSetOf<Int>(typeid)
-
-    for (i in 0..steps) {
-        related.addAll(related.industryRelatedFirst())
+    init {
+        uniqueIndex(
+            typeid,
+            relatedtypeid
+        )
+        index(false, typeid)
     }
-
-    return related
 }
+
+fun industryRelated(item: Int) = transaction {
+    val first = industryrelated.select { industryrelated.typeid eq item }.map {
+        it[industryrelated.relatedtypeid]
+    }.toSet()
+
+    return@transaction if (first.size > 20)
+        first
+    else
+        first + industryrelated.select { industryrelated.typeid inList first }.map {
+            it[industryrelated.relatedtypeid]
+        }.toSet()
+}
+
 
 //TODO make expected, make makeFor on client (rather than caching?)
 
-//TODO store related in DB?
+//TODO store interfaces in DB?
 
-private fun invtype.generateRelated(steps: Int = 2): List<Int> = transaction {
+private fun invtype.generateRelated(steps: Int = 1): List<Int> = transaction {
     listOf(
-        industryRelated(typeID, steps),
+        industryRelated(typeID),
         group.invtypes_rk.map { it.typeID },
         marketGroup?.invtypes_rk?.map { it.typeID } ?: emptyList()
     ).flatten().toSet().filter { it != this@generateRelated.typeID }
@@ -119,42 +80,64 @@ Want to keep reasonably small if possible
 
  */
 
-suspend fun addAllRelated(limit: Int? = null, steps: Int = 2) = coroutineScope {
-    val known = transaction { relateditems.selectAll().map { it[relateditems.typeid] }.toSet() }
+suspend fun addAllRelated(limit: Int? = null, steps: Int = 1, force: Boolean = false) = coroutineScope {
+    //val known = transaction { relateditems.selectAll().map { it[relateditems.typeid] }.toSet() }
 
-    transaction { invtype.all().toList().filter { it.typeID !in known } }
-        .let {
-
-            if (it.isEmpty()) {
-                println("No more items to add!")
-                throw RuntimeException("Done with adding items")
+    val types =
+        publishedItems/*.filter { it.typeID !in known }*/
+            .let {
+                /*
+                if (it.isEmpty()) {
+                    println("No more items to add!")
+                    throw RuntimeException("Done with adding items")
+                }
+                */
+                if (limit != null)
+                    it.take(limit)
+                else
+                    it
             }
 
-            if (limit != null)
-                it.take(limit)
-            else
-                it
+    val sizes = relateditems.run {
+        transaction {
+            slice(typeid, relatedtypeid.count())
+                .select{ typeid inList types.map { it.typeID } }
+                .groupBy(typeid).associate {
+                    it[typeid] to it[relatedtypeid.count()]
+                }
         }
-        .map {
-            launch(Dispatchers.IO) {
-                it.generateRelated(steps).map { related ->
-                    launch(Dispatchers.IO) {
-                        transaction {
-                            if (invtype.findById(related) != null)
-                                relateditems.addRelation(it.typeID, related)
-                        }
-                    }
-                }.joinAll()
-            }
-        }.joinAll()
-}
-
-fun main(args: Array<String>) {
-    connectToDB(args.getOrNull(1))
-    runBlocking {
-        addAllRelated(limit = args.getOrNull(0)?.toIntOrNull())
     }
 
+    val numTypes = types.size
+
+    println("Types to do: $numTypes")
+
+    var typesLeft = numTypes
+
+    types.map { type ->
+        launch(Dispatchers.Default) {
+            val toAdd = type.generateRelated(steps).filter { it in publishedItemIds }
+
+            if(toAdd.size > sizes[type.typeID] ?: 0 || force) {
+                transaction {
+                    relateditems.deleteWhere { relateditems.typeid eq type.typeID }
+
+                    commit()
+
+                    relateditems.batchInsert(toAdd, true) {
+                        this[relateditems.typeid] = type.typeID
+                        this[relateditems.relatedtypeid] = it
+                    }
+                }
+                typesLeft--
+                println("Inserted.  Left: $typesLeft (${100 * typesLeft / numTypes}%)")
+            } else {
+                typesLeft--
+                println("Skipped.  Left: $typesLeft (${100 * typesLeft / numTypes}%)")
+            }
+
+        }
+    }.joinAll()
 }
 
 fun invtype.getRelated(): List<invtype> = transaction {

@@ -193,7 +193,6 @@ fun MarketInfo.Companion.makeFor(
     )
 }
 
-
 fun TimeMarketInfo.Companion.makeFor(type: invtype, startDate: DateTime, daysPast: Int = 14): TimeMarketInfo {
 
     val last2 = (1..daysPast + 1).map { getMarketInfo(type, startDate - it.days).toMarketTypeInfo() }
